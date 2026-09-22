@@ -618,7 +618,14 @@ def train(
                 if hasattr(optimizer.learning_rate, "item")
                 else args.learning_rate
             )
-            it_sec = args.steps_per_report / train_time
+            # The report above fires on it % steps_per_report == 0 or it == iters, so
+            # the final report covers only iters % steps_per_report iterations.
+            # `steps` holds that count and is reset below alongside the other
+            # metrics, while steps_per_report would overstate the rate by
+            # steps_per_report / steps: with iters=21 and steps_per_report=10 the
+            # report at iter 21 covers iteration 21 alone, where steps_per_report /
+            # train_time read 1.389 it/s (bug) against a true 0.139.
+            it_sec = steps / train_time
             tokens_sec = float(n_tokens_total) / train_time
             trained_tokens += n_tokens_total
             peak_mem = mx.get_peak_memory() / 1e9
