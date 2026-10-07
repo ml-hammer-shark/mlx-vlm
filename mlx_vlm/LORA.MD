@@ -145,6 +145,7 @@ python lora.py --dataset your_dataset \
 ### Dataset Arguments
 - `--dataset`: Path or Hugging Face dataset identifier (required)
 - `--split`: Dataset split to use (default: "train")
+- `--val-dataset`: Path or Hugging Face dataset identifier holding validation data, read from its `validation` split (optional). Without it no validation runs, and `--steps-per-eval`/`--val-batches` have no effect. Works for both `sft` and `orpo` training modes, and the data must use the same columns as `--dataset`.
 - `--dataset-config`: Dataset configuration name (optional)
 - `--image-resize-shape`: Resize images to specific shape, e.g., `--image-resize-shape 768 768`
 - `--custom-prompt-format`: Custom JSON prompt template for dataset transformation
@@ -270,6 +271,7 @@ args = argparse.Namespace(
     model_path="mlx-community/Qwen3-VL-2B-Instruct-bf16",
     dataset="your-huggingface-dataset-id",
     split="train",
+    val_dataset=None,
     dataset_config=None,
     batch_size=2,
     epochs=2,

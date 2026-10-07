@@ -168,6 +168,17 @@ def main(args):
         args.dataset_config if args.dataset_config else None,
         split=args.split,
     )
+    val_dataset_path = getattr(args, "val_dataset", None)
+    raw_val_data = None
+    if val_dataset_path is not None:
+        logger.info(
+            f"{Colors.HEADER}Loading validation dataset from {val_dataset_path}{Colors.ENDC}"
+        )
+        raw_val_data = load_dataset(
+            val_dataset_path,
+            args.dataset_config if args.dataset_config else None,
+            split="validation",
+        )
 
     # Calculate training iterations
     if args.epochs is not None:
@@ -180,8 +191,15 @@ def main(args):
         dataset = transform_dataset_to_messages(
             dataset, model_type, args.custom_prompt_format
         )
+        if raw_val_data is not None:
+            raw_val_data = transform_dataset_to_messages(
+                raw_val_data, model_type, args.custom_prompt_format
+            )
 
-    # Create training dataset
+    # Create training and, when --val-dataset is given, validation datasets. Both
+    # wrap the same class, since the trainers collate val batches exactly like
+    # train batches.
+    val_dataset = None
     if args.train_mode == "orpo":
         train_dataset = PreferenceVisionDataset(
             dataset,
@@ -189,6 +207,13 @@ def main(args):
             processor,
             image_resize_shape=args.image_resize_shape,
         )
+        if raw_val_data is not None:
+            val_dataset = PreferenceVisionDataset(
+                raw_val_data,
+                config,
+                processor,
+                image_resize_shape=args.image_resize_shape,
+            )
     else:
         train_dataset = VisionDataset(
             dataset,
@@ -196,6 +221,23 @@ def main(args):
             processor,
             image_resize_shape=args.image_resize_shape,
             train_on_completions=args.train_on_completions,
+        )
+        if raw_val_data is not None:
+            val_dataset = VisionDataset(
+                raw_val_data,
+                config,
+                processor,
+                image_resize_shape=args.image_resize_shape,
+                train_on_completions=args.train_on_completions,
+            )
+
+    # iterate_batches rejects a dataset smaller than batch_size, but it does so
+    # from inside the first evaluate() call, where the message does not say which
+    # dataset is at fault. Check the validation set here so the error names it.
+    if val_dataset is not None and len(val_dataset) < args.batch_size:
+        raise ValueError(
+            f"Validation dataset has {len(val_dataset)} examples but --batch-size "
+            f"is {args.batch_size}; it needs at least batch_size examples."
         )
 
     # Setup model for training
@@ -230,7 +272,7 @@ def main(args):
             model=model,
             optimizer=optimizer,
             train_dataset=train_dataset,
-            val_dataset=None,
+            val_dataset=val_dataset,
             args=training_args,
             train_on_completions=args.train_on_completions,
             assistant_id=args.assistant_id,
@@ -255,7 +297,7 @@ def main(args):
             model=model,
             optimizer=optimizer,
             train_dataset=train_dataset,
-            val_dataset=None,
+            val_dataset=val_dataset,
             args=training_args,
             train_on_completions=args.train_on_completions,
             assistant_id=args.assistant_id,
@@ -279,6 +321,15 @@ if __name__ == "__main__":
     # Dataset arguments
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--split", type=str, default="train")
+    parser.add_argument(
+        "--val-dataset",
+        type=str,
+        default=None,
+        help="Path or repo id holding validation data, read from its 'validation' "
+        "split. If omitted, no validation runs and --steps-per-eval/--val-batches "
+        "have no effect. Works for both --train-mode sft and orpo, and must use "
+        "the same columns as --dataset.",
+    )
     parser.add_argument("--dataset-config", type=str, default=None)
     parser.add_argument("--image-resize-shape", type=int, nargs=2, default=None)
     parser.add_argument(
